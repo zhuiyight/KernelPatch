@@ -200,9 +200,8 @@ static inline int get_offsets_elem_size(kallsym_t *info)
     return info->asm_long_size;
 }
 
-static int try_find_arm64_relo_table(kallsym_t *info, char *img, int32_t imglen)
+static int try_arm64_relocate(kallsym_t *info, char *img, int32_t imglen)
 {
-    if (!info->try_relo) return 0;
     uint64_t min_va = ELF64_KERNEL_MIN_VA;
     uint64_t max_va = ELF64_KERNEL_MAX_VA;
     uint64_t kernel_va = max_va;
@@ -227,14 +226,12 @@ static int try_find_arm64_relo_table(kallsym_t *info, char *img, int32_t imglen)
         }
     }
 
-    if (info->elf64_kernel_base) {
-        tools_logi("find arm64 relocation kernel_va: 0x%" PRIx64 ", but try use: %" PRIx64 "\n", kernel_va,
-                   info->elf64_kernel_base);
-        kernel_va = info->elf64_kernel_base;
-    } else {
-        info->elf64_kernel_base = kernel_va;
-        tools_logi("find arm64 relocation kernel_va: 0x%" PRIx64 "\n", kernel_va);
-    }
+    info->kernel_va_min = min_va;
+    info->kernel_va = kernel_va;
+
+    tools_logi("arm64 relocation, kernel_va: 0x%llx, min:%llx\n", info->kernel_va, info->kernel_va_min);
+
+    if (info->kernel_va == max_va) info->kernel_va = min_va;
 
     int32_t cand_start = cand - 24 * rela_num;
     int32_t cand_end = cand - 24;
@@ -269,7 +266,6 @@ static int try_find_arm64_relo_table(kallsym_t *info, char *img, int32_t imglen)
         int32_t offset = r_offset - kernel_va;
         if (offset < 0 || offset >= max_offset) {
             tools_logw("bad rela offset: 0x%" PRIx64 "\n", r_offset);
-            info->try_relo = 0;
             return -1;
         }
 
@@ -604,7 +600,7 @@ static int find_names(kallsym_t *info, char *img, int32_t imglen)
     return 0;
 }
 
-int arm64_verify_pid_vnr(kallsym_t *info, char *img, int32_t offset)
+static int arm64_verify_pid_vnr(kallsym_t *info, char *img, int32_t offset)
 {
     for (int i = 0; i < 6; i++) {
         int32_t insn_offset = offset + i * 4;
@@ -631,7 +627,6 @@ int arm64_verify_pid_vnr(kallsym_t *info, char *img, int32_t offset)
 static int correct_addresses_or_offsets_by_vectors(kallsym_t *info, char *img, int32_t imglen)
 {
     // vectors .align 11
-    // todo: tramp_vectors .align 11
     int32_t pos = info->kallsyms_names_offset;
     int32_t index = 0, vector_index = 0, pid_vnr_index = 0;
     char symbol[KSYM_SYMBOL_LEN] = { '\0' };
@@ -658,7 +653,8 @@ static int correct_addresses_or_offsets_by_vectors(kallsym_t *info, char *img, i
     }
 
     int32_t elem_size = info->has_relative_base ? get_offsets_elem_size(info) : get_addresses_elem_size(info);
-    uint64_t first_elem_val = uint_unpack(img + info->_approx_addresses_or_offsets_offset, elem_size, info->is_be);
+    // uint64_t first_elem_val = uint_unpack(img + info->_approx_addresses_or_offsets_offset, elem_size, info->is_be);
+    uint64_t first_elem_val = 0;
 
     // we need some buffer, for some kernel _head(stripped) is ffffff8008080000 and stext (first symbol) is ffffff8008080800,
     int32_t search_start = info->_approx_addresses_or_offsets_offset;
@@ -674,8 +670,8 @@ static int correct_addresses_or_offsets_by_vectors(kallsym_t *info, char *img, i
             int32_t pid_vnr_offset =
                 uint_unpack(img + pos + pid_vnr_index * elem_size, elem_size, info->is_be) - first_elem_val;
             if (!arm64_verify_pid_vnr(info, img, pid_vnr_offset)) {
-                tools_logi("vectors offset: 0x%08x\n", vector_offset);
-                tools_logi("pid_vnr offset: 0x%08x\n", pid_vnr_offset);
+                tools_logi("vectors index: %d, offset: 0x%08x\n", vector_index, vector_offset);
+                tools_logi("pid_vnr index: %d, offset: 0x%08x\n", pid_vnr_index, pid_vnr_offset);
                 break;
             }
         }
@@ -761,8 +757,10 @@ static int correct_addresses_or_offsets(kallsym_t *info, char *img, int32_t imgl
 #if 1
     rc = correct_addresses_or_offsets_by_banner(info, img, imglen);
 #endif
+    info->kallsyms_all_yes = 1;
     if (rc) {
-        tools_logw("no linux_banner? maybe CONFIG_KALLSYMS_ALL=n?\n");
+        info->kallsyms_all_yes = 0;
+        tools_logw("no linux_banner, CONFIG_KALLSYMS_ALL=n\n");
     }
     if (rc) rc = correct_addresses_or_offsets_by_vectors(info, img, imglen);
     return rc;
@@ -774,7 +772,6 @@ void init_arm64_kallsym_t(kallsym_t *info)
     info->is_64 = 1;
     info->asm_long_size = 4;
     info->asm_PTR_size = 8;
-    info->try_relo = 1;
 }
 
 void init_not_tested_arch_kallsym_t(kallsym_t *info, int32_t is_64)
@@ -783,23 +780,7 @@ void init_not_tested_arch_kallsym_t(kallsym_t *info, int32_t is_64)
     info->is_64 = is_64;
     info->asm_long_size = 4;
     info->asm_PTR_size = 4;
-    info->try_relo = 0;
     if (is_64) info->asm_PTR_size = 8;
-}
-
-int retry_relo_retry(kallsym_t *info, char *img, int32_t imglen)
-{
-    int rc = -1;
-    static int32_t (*funcs[])(kallsym_t *, char *, int32_t) = {
-        try_find_arm64_relo_table,   find_markers, find_approx_addresses_or_offset, find_names, find_num_syms,
-        correct_addresses_or_offsets
-    };
-
-    for (int i = 0; i < (int)(sizeof(funcs) / sizeof(funcs[0])); i++) {
-        if ((rc = funcs[i](info, img, imglen))) break;
-    }
-
-    return rc;
 }
 
 /*
@@ -817,43 +798,17 @@ int analyze_kallsym_info(kallsym_t *info, char *img, int32_t imglen, enum arch_t
     info->is_64 = is_64;
     info->asm_long_size = 4;
     info->asm_PTR_size = 4;
-    if (arch == ARM64) info->try_relo = 1;
     if (is_64) info->asm_PTR_size = 8;
 
     int rc = -1;
-    static int32_t (*base_funcs[])(kallsym_t *, char *, int32_t) = {
-        find_linux_banner,
-        find_token_table,
-        find_token_index,
-    };
+    static int32_t (*base_funcs[])(kallsym_t *, char *,
+                                   int32_t) = { find_linux_banner,  find_token_table, find_token_index,
+                                                try_arm64_relocate, find_markers,     find_approx_addresses_or_offset,
+                                                find_names,         find_num_syms,    correct_addresses_or_offsets };
     for (int i = 0; i < (int)(sizeof(base_funcs) / sizeof(base_funcs[0])); i++) {
         if ((rc = base_funcs[i](info, img, imglen))) return rc;
     }
 
-    char *copied_img = (char *)malloc(imglen);
-    memcpy(copied_img, img, imglen);
-
-    // 1st
-    rc = retry_relo_retry(info, copied_img, imglen);
-    if (!rc) goto out;
-
-    // 2nd
-    if (!info->try_relo) {
-        memcpy(copied_img, img, imglen);
-        rc = retry_relo_retry(info, copied_img, imglen);
-        if (!rc) goto out;
-    }
-
-    // 3rd
-    if (info->elf64_kernel_base != ELF64_KERNEL_MIN_VA) {
-        info->elf64_kernel_base = ELF64_KERNEL_MIN_VA;
-        memcpy(copied_img, img, imglen);
-        rc = retry_relo_retry(info, copied_img, imglen);
-    }
-
-out:
-    memcpy(img, copied_img, imglen);
-    free(copied_img);
     return rc;
 }
 
@@ -868,9 +823,13 @@ int32_t get_symbol_index_offset(kallsym_t *info, char *img, int32_t index)
         elem_size = get_addresses_elem_size(info);
         pos = info->kallsyms_addresses_offset;
     }
-    uint64_t first = uint_unpack(img + pos, elem_size, info->is_be);
     uint64_t target = uint_unpack(img + pos + index * elem_size, elem_size, info->is_be);
-    return (int32_t)(target - first);
+    if (info->has_relative_base) {
+        return (int32_t)target;
+    } else {
+        // uint64_t first = uint_unpack(img + pos, elem_size, info->is_be);
+        return (int32_t)(target - info->kernel_va);
+    }
 }
 
 int get_symbol_offset_and_size(kallsym_t *info, char *img, char *symbol, int32_t *size)

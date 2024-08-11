@@ -111,15 +111,10 @@ struct patch_symbol
             uint64_t rest_init;
             uint64_t cgroup_init;
             uint64_t kernel_init;
-            uint64_t report_cfi_failure;
-            uint64_t __cfi_slowpath_diag;
-            uint64_t __cfi_slowpath;
             uint64_t copy_process;
             uint64_t cgroup_post_fork;
             uint64_t avc_denied;
             uint64_t slow_avc_audit;
-            uint64_t policydb_write;
-            uint64_t input_handle_event;
         };
         char _cap[PATCH_SYMBOL_LEN];
     };

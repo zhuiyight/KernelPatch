@@ -80,6 +80,11 @@ typedef struct
     int32_t asm_PTR_size;
     int32_t kallsyms_num_syms;
 
+    int32_t kallsyms_all_yes;
+
+    uint64_t kernel_va;
+    uint64_t kernel_va_min;
+
     int32_t has_relative_base;
     int32_t kallsyms_addresses_offset;
     int32_t kallsyms_offsets_offset;
@@ -96,11 +101,9 @@ typedef struct
     int32_t _approx_addresses_or_offsets_num;
     int32_t _marker_num;
 
-    int32_t try_relo;
     int32_t relo_applied;
     int32_t elf64_rela_num;
     int32_t elf64_rela_offset;
-    uint64_t elf64_kernel_base;
     int32_t elf64_current_heuris;
 
 } kallsym_t;

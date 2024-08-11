@@ -61,12 +61,11 @@ static const char user_rc_data[] = { //
     "on property:vold.decrypt=trigger_restart_framework\n"
     "    exec -- " SUPERCMD " su exec " USER_INIT_SH_PATH " %s services\n"
     "on property:sys.boot_completed=1\n"
-    // "    rm " REPLACE_RC_FILE "\n"
-    // "    rm " USER_INIT_SH_PATH "\n"
+    "    rm " REPLACE_RC_FILE "\n"
+    "    rm " USER_INIT_SH_PATH "\n"
     "    exec -- " SUPERCMD " su exec " USER_INIT_SH_PATH " %s boot-completed\n"
     ""
 };
-
 
 static const void *kernel_read_file(const char *path, loff_t *len)
 {
@@ -370,7 +369,7 @@ int android_user_init()
     log_boot("hook __NR_openat rc: %d\n", rc);
     ret |= rc;
 
-    unsigned long input_handle_event_addr = get_preset_patch_sym()->input_handle_event;
+    unsigned long input_handle_event_addr = kallsyms_lookup_name("input_handle_event");
     if (input_handle_event_addr) {
         rc = hook_wrap4((void *)input_handle_event_addr, before_input_handle_event, 0, 0);
         ret |= rc;
