@@ -1,7 +1,7 @@
 MYKPM_VERSION := 1.2.0
 
 ifndef KP_DIR
-    KP_DIR = ..
+    KP_DIR = ../..
 endif
 
 OS_NAME = $(shell uname | tr A-Z a-z)
