@@ -76,9 +76,9 @@ jobs:
           make
           mv syscallhook.kpm demo-syscallhook.kpm
 
-          cd ../hosts_file_redirect
+          cd ../hosts_redirect
           make
-          mv hosts_file_redirect_1.1.8.kpm hosts_file_redirect_1.1.9.kpm
+          mv hosts_redirect_1.2.0.kpm hosts_file_redirect_1.1.9.kpm
 
       - name: Upload elf
         uses: actions/upload-artifact@v3
@@ -99,7 +99,7 @@ jobs:
             kpms/demo-hello/demo-hello.kpm
             kpms/demo-inlinehook/demo-inlinehook.kpm
             kpms/demo-syscallhook/demo-syscallhook.kpm
-            kpms/hosts_file_redirect/hosts_file_redirect_1.1.9.kpm
+            kpms/hosts_redirect/hosts_file_redirect_1.1.9.kpm
           generateReleaseNotes: true
           allowUpdates: true
           replacesArtifacts: true
